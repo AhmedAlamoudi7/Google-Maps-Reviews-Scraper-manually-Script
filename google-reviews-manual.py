@@ -40,15 +40,15 @@ proxy_url = "https://proxy.scrapeops.io/v1/"
 # Function to extract the title
 def extract_title(panel):
     title_tag = panel.find('div', {'data-attrid': 'title'})
-    return title_tag.get_text(strip=True) if title_tag else "Not Found"
+    return title_tag.get_text(strip=True) if title_tag else ""
 # Function to extract the phone number
 def extract_bio(panel):
     bio_tag = panel.find('span', {'E5BaQ'})
-    return bio_tag.get_text(strip=True) if bio_tag  else "Not Found"
+    return bio_tag.get_text(strip=True) if bio_tag  else ""
 # Function to extract the rating and number of reviews
 def extract_rating_and_reviews(panel):
     subtitle_tag = panel.find('div', {'data-attrid': 'subtitle'})
-    rating, number_of_reviews = "Not Found", "Not Found"
+    rating, number_of_reviews = "", ""
     if subtitle_tag:
         subtitle_text = subtitle_tag.get_text(strip=True)
         rating_match = re.search(r"(\d+\.\d+)", subtitle_text)
@@ -61,29 +61,29 @@ def extract_rating_and_reviews(panel):
 # Function to extract the address
 def extract_address(panel):
     address_tag = panel.find('div', {'data-attrid': 'kc:/location/location:address'})
-    return address_tag.get_text(strip=True).replace("Address:", "").strip() if address_tag else "Not Found"
+    return address_tag.get_text(strip=True).replace("Address:", "").strip() if address_tag else ""
 # Function to extract the phone number
 def extract_phone(panel):
     phone_tag = panel.find('a', {'data-phone-number': True})
-    return phone_tag['data-phone-number'] if phone_tag and 'data-phone-number' in phone_tag.attrs else "Not Found"
+    return phone_tag['data-phone-number'] if phone_tag and 'data-phone-number' in phone_tag.attrs else ""
 # Function to extract the website link
 def extract_website(panel):
     website_tag = panel.find('a', {'class': 'n1obkb mI8Pwc'})
-    return website_tag['href'] if website_tag and 'href' in website_tag.attrs else "Not Found"
+    return website_tag['href'] if website_tag and 'href' in website_tag.attrs else ""
 # Function to extract business status (e.g., "Permanently closed")
 def extract_business_status(panel):
     business_status_tag = panel.find('div', {'data-attrid': 'kc:/local:permanently closed'})
     status_text_tag = business_status_tag.find('span', {'class': 'hBA2d Shyhc'}) if business_status_tag else None
-    return status_text_tag.get_text(strip=True) if status_text_tag else "Not Found"
+    return status_text_tag.get_text(strip=True) if status_text_tag else "Active"
 # Function to extract the provider description
 def extract_provider_description(panel):
     provider_description_tag = panel.find('div', {'data-attrid': 'kc:/local:merchant_description'})
     if provider_description_tag:
         pqboe_div = provider_description_tag.find('div', {'class': 'PQbOE'})
         description_div = pqboe_div.find_next_sibling('div') if pqboe_div else None
-        description = description_div.get_text(strip=True) if description_div else "No description available"
+        description = description_div.get_text(strip=True) if description_div else ""
         return description
-    return "provider_description: No description available"
+    return ""
 def extract_google_reviews(soup):
     """
     Extracts Google reviews data from the provided HTML structure.
@@ -98,11 +98,19 @@ def extract_google_reviews(soup):
         
         # Extract overall rating
         rating_tag = google_reviews_section.find('span', {'class': 'Aq14fc'})
-        rating = rating_tag.get_text(strip=True) + "/5" if rating_tag else "No rating available"
+        rating = rating_tag.get_text(strip=True) + "/5" if rating_tag else ""
         
         # Extract total number of reviews
         total_reviews_tag = google_reviews_section.find('a', {'jsaction': 'FNFY6c'})
-        total_reviews = total_reviews_tag.get_text(strip=True) if total_reviews_tag else "No reviews available"
+        total_reviews = total_reviews_tag.get_text(strip=True)
+        if total_reviews_tag:
+            total_reviews = total_reviews_tag.get_text(strip=True)
+            # Check if the text contains "Add a photo"
+            if "Add a photo" in total_reviews:
+                print("The text 'Add a photo' was found in the total reviews section. Skipping...")
+                total_reviews = ""  # Or handle it as needed
+        else:
+            total_reviews = ""
         
         # Append the extracted data to the related_terms list
         google_reviews_data['related_terms'].append({
@@ -131,15 +139,15 @@ def extract_web_reviews(panel):
         for source in review_sources:
             # Extract rating
             rating_tag = source.find('span', {'class': 'inaKse G5rmf'})
-            rating = rating_tag.get_text(strip=True) if rating_tag else "No rating available"
+            rating = rating_tag.get_text(strip=True) if rating_tag else ""
             
             # Extract title (e.g., "Healthgrades")
             title_tag = source.find('span', {'class': 'inaKse zLJMec'})
-            title = title_tag.get_text(strip=True) if title_tag else "No title available"
+            title = title_tag.get_text(strip=True) if title_tag else ""
             
             # Extract total reviews
             total_reviews_tag = source.find('span', {'class': 'inaKse KM6XSd'})
-            total_reviews = total_reviews_tag.get_text(strip=True).replace("·", "").strip() if total_reviews_tag else "No reviews available"
+            total_reviews = total_reviews_tag.get_text(strip=True).replace("·", "").strip() if total_reviews_tag else ""
             
             # Append the extracted data to the web_reviews_entities dictionary
             web_reviews_entities['web_reviews'].append({
@@ -179,7 +187,7 @@ def extract_images(media_section):
                 # Only append if the URL is valid
                 if full_url:
                     image_data = {
-                        "description": img_tag.get('alt', "No description"),
+                        "description": img_tag.get('alt', ""),
                         "url": full_url
                     }
                     images.append(image_data)
@@ -259,8 +267,8 @@ def extract_hours(panel):
     Returns a dictionary containing the extracted hours information.
     """
     hours_data = {
-        "section_title": "Hours",
-        "current_status": "Not Found",
+        "section_title": "",
+        "current_status": "",
     }
 
     # Locate the "Hours" section
@@ -283,6 +291,38 @@ def extract_hours(panel):
         print(f"An error occurred while extracting hours data: {e}")
 
     return hours_data
+def extract_hours_table(panel):
+    """
+    Extracts the business hours for each day of the week from the Knowledge Panel.
+    Returns a dictionary where keys are days and values are their respective statuses.
+    """
+    hours_data = {}
+    
+    # Locate the hours section in the panel
+    hours_section = panel.find('div', {'data-attrid': 'kc:/location/location:hours'})
+    if not hours_section:
+        print("Hours section not found.")
+        return hours_data  # Return an empty dictionary if the section is not found
+    
+    print("Found 'Hours' section.")
+    
+    # Find the table containing the days and their statuses
+    hours_table = hours_section.find('table', {'class': 'WgFkxc'})
+    if not hours_table:
+        print("Hours table not found.")
+        return hours_data  # Return an empty dictionary if the table is not found
+    
+    # Iterate through each row in the table
+    rows = hours_table.find_all('tr')
+    for row in rows:
+        # Extract the day and its status
+        cells = row.find_all('td')
+        if len(cells) >= 2:
+            day = cells[0].get_text(strip=True)
+            status = cells[1].get_text(strip=True)
+            hours_data[day] = status
+    
+    return hours_data
 def extract_social_media_profiles(panel):
     """
     Extracts social media profiles data from the provided HTML structure.
@@ -302,7 +342,7 @@ def extract_social_media_profiles(panel):
             link_tag = container.find('a')
             if link_tag:
                 url = link_tag['href']
-                platform_name = link_tag.find('div', {'class': 'CtCigf'}).get_text(strip=True) if link_tag.find('div', {'class': 'CtCigf'}) else "Not Found"
+                platform_name = link_tag.find('div', {'class': 'CtCigf'}).get_text(strip=True) if link_tag.find('div', {'class': 'CtCigf'}) else ""
 
                 # Append the extracted data to the social_media_profiles dictionary
                 social_media_profiles['social_media'].append({
@@ -363,15 +403,15 @@ def extract_google_reviews_list(panel):
 
             # Extract user name
             user_name_tag = container.find('a', {'class': 'a-no-hover-decoration'})
-            user_name = user_name_tag.get_text(strip=True) if user_name_tag else "No name available"
+            user_name = user_name_tag.get_text(strip=True) if user_name_tag else ""
 
             # Extract review text
             review_text_tag = user_name_tag
-            review_text = review_text_tag.get_text(strip=True) if review_text_tag else "No review text available"
+            review_text = review_text_tag.get_text(strip=True) if review_text_tag else ""
 
             # Extract rating
             rating_tag = container.find('span', {'class': 'z3HNkc'})
-            rating = rating_tag['aria-label'] if rating_tag and 'aria-label' in rating_tag.attrs else "No rating available"
+            rating = rating_tag['aria-label'] if rating_tag and 'aria-label' in rating_tag.attrs else ""
 
             # Append the extracted data to the google_reviews_data dictionary
             google_reviews_data['reviews'].append({
@@ -387,103 +427,36 @@ def extract_google_reviews_list(panel):
     return google_reviews_data
 def extract_knowledge_panel_data(panel, soup,query):
     data = {}
-
     # Extract first few items without delays
     data["title"] = extract_title(panel)
-       # Introduce a delay before extracting the last five items
-    print("Sleeping before extracting the last five items...")
-    time.sleep(random.randint(10, 20))
     data["rating"], data["number_of_google_reviews"] = extract_rating_and_reviews(panel)
-       # Introduce a delay before extracting the last five items
-    print("Sleeping before extracting the last five items...")
-    time.sleep(random.randint(10, 20))
     data["bio"] = extract_bio(panel)
-       # Introduce a delay before extracting the last five items
-    print("Sleeping before extracting the last five items...")
-    time.sleep(random.randint(10, 20))
     data["address"] = extract_address(panel)
-       # Introduce a delay before extracting the last five items
-    print("Sleeping before extracting the last five items...")
-    time.sleep(random.randint(10, 20))
     data["phone"] = extract_phone(panel)
-
-    # Introduce a delay before extracting the last five items
-    print("Sleeping before extracting the last five items...")
-    time.sleep(random.randint(10, 20))
-
     # Extract website
     data["website"] = extract_website(panel)
-
-    # Sleep again before the next item
-    print("Sleeping before extracting business status...")
-    time.sleep(random.randint(10, 20))
-
     # Extract business status
     data["business_status"] = extract_business_status(panel)
-
-    # Sleep again before the next item
-    print("Sleeping before extracting provider description...")
-    time.sleep(random.randint(10, 20))
-
     # Extract provider description
     data["provider_description"] = extract_provider_description(panel)
-    
-    # Sleep again before the next item
-    print("Sleeping before extracting hours...")
-    time.sleep(random.randint(10, 20))
-
     # Extract hours
     data["hours"] = extract_hours(panel)
-    
-    # Sleep again before the next item
-    print("Sleeping before extracting contact...")
-    time.sleep(random.randint(10, 20))
-
+    # Extract hours
+    data["hours_table"] = extract_hours_table(panel)
     # Extract contact
     data["contact"] = extract_contact_info(panel)
-
-    # Sleep again before the next item
-    print("Sleeping before extracting profiles...")
-    time.sleep(random.randint(10, 20))
-
     # Extract profiles
     data["profiles"] = extract_social_media_profiles(panel)
-
-    # Sleep again before the next item
-    print("Sleeping before extracting Google reviews...")
-    time.sleep(random.randint(10, 20))
-
     # Extract Google reviews
     data["google_reviews"] = extract_google_reviews(soup)
-    
-    # Sleep again before the next item
-    print("Sleeping before extracting Google reviews list...")
-    time.sleep(random.randint(10, 20))
-
     # Extract Google reviews list
     data["google_reviews_list"] = extract_google_reviews_list(soup)
-    
-    # Sleep again before the next item
-    print("Sleeping before extracting media type...")
-    time.sleep(random.randint(10, 20))
-
     # Extract media type
     data["media_type"] = extract_media_type(soup)
-
-    # Sleep again before the next item
-    print("Sleeping before extracting 'People also search for'...")
-    time.sleep(random.randint(10, 20))
-
     # Extract "People also search for"
     data["people_also_search_for"] = extract_people_also_search_for(soup)
-
-    # Sleep again before the final item
-    print("Sleeping before extracting 'Web reviews'...")
-    time.sleep(random.randint(10, 20))
-
     # Extract "Web reviews"
     data["web_reviews"] = extract_web_reviews(panel)
-
     # Add query to the data dictionary
     data["query"] = query
 
@@ -506,6 +479,9 @@ def process_query(query_text, npi, output_directory):
     max_retries = 5
     retry_delay = 15
 
+    # Ensure the output directory exists
+    os.makedirs(output_directory, exist_ok=True)
+
     for attempt in range(max_retries):
         print(f"Attempt {attempt + 1} of {max_retries}")
         time.sleep(random.uniform(7, 15))
@@ -518,6 +494,14 @@ def process_query(query_text, npi, output_directory):
             )
             response.raise_for_status()
             soup = BeautifulSoup(response.content, 'html.parser')
+
+            # Save the raw HTML to a file in the output directory
+            html_filename = os.path.join(output_directory, f"{query_text.replace(' ', '_')}_raw.html")
+            with open(html_filename, 'w', encoding='utf-8') as html_file:
+                html_file.write(soup.prettify())
+            print(f"Raw HTML saved to '{html_filename}'")
+
+            # Locate the Knowledge Panel
             knowledge_panel = soup.find('div', {'id': 'rhs'})
             if not knowledge_panel:
                 print("Knowledge Panel not found. Retrying...")
@@ -536,12 +520,16 @@ def process_query(query_text, npi, output_directory):
         logging.error(f"Failed to find Knowledge Panel for query '{query_text}' after multiple attempts.")
         return None
 
+    # Extract data from the Knowledge Panel
     panel_data = extract_knowledge_panel_data(knowledge_panel, soup, query_text)
     if npi:
         panel_data["npi"] = npi
-    save_to_json(panel_data, query_text, output_directory)
-    return True
 
+    # Save the extracted data to JSON
+    save_to_json(panel_data, query_text, output_directory)
+
+    return True
+    
 def fetch_all_data(csv_file, output_directory, max_threads=10):
     completed_queries = set()
     progress_file = os.path.join(output_directory, 'progress.txt')
