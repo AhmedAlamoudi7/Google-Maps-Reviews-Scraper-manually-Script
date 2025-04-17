@@ -5,14 +5,21 @@ import random
 import json
 import re
 from urllib.parse import urljoin
+import csv
+import os
+from concurrent.futures import ThreadPoolExecutor
+from tqdm import tqdm
+import argparse
+import logging
 
-# Step 1: Define the search query
-query = "Dr. Azadeh Beheshtian Interventional Cardiologist New York"
+# Configure logging
+logging.basicConfig(
+    filename="scraping.log",
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
-# Step 2: Construct the Google search URL
-url = f"https://www.google.com/search?q={query}"
-
-# Step 3: Set headers to mimic a real browser request
+# Set headers to mimic a real browser request
 user_agents = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/14.1.1 Safari/605.1.15",
@@ -26,8 +33,8 @@ headers = {
     "Accept-Encoding": "gzip, deflate, br",
 }
 
-# Step 4: Use ScrapeOps Proxy to avoid IP blocking
-scrapeops_api_key = "37e23611-991c-480b-b769-3a8281be9e26"  # Replace with your actual API key
+# ScrapeOps Proxy
+scrapeops_api_key = "37e23611-991c-480b-b769-3a8281be9e26" 
 proxy_url = "https://proxy.scrapeops.io/v1/"
 
 # Function to extract the title
@@ -146,38 +153,6 @@ def extract_web_reviews(panel):
         print("'Reviews from the web' section not found.")
     
     return web_reviews_entities
-# def extract_images(media_section):
-#     """Extracts image data from the media section."""
-#     images = []
-#     image_containers = media_section.find_all('a', href=True)
-#     for container in image_containers:
-#         img_tag = container.find('img')
-#         if img_tag:
-#             try:
-#                 image_data = {
-#                     "description": img_tag.get('alt', "No description"),
-#                     "url": "https://www.google.com"+container['href']
-#                 }
-#                 images.append(image_data)
-#             except KeyError as e:
-#                 print(f"Missing attribute in image container: {e}")
-#     return images
-# def extract_map(media_section):
-#     """Extracts map data from the media section."""
-#     map_data = []
-#     map_container = media_section.find('g-img', id='lu_map')
-#     if map_container:
-#         map_img_tag = map_container.find('img')
-#         if map_img_tag:
-#             try:
-#                 map_data.append({
-#                     "type": "map",
-#                     "url": "https://www.google.com"+map_img_tag['src']
-#                 })
-#             except KeyError as e:
-#                 print(f"Missing attribute in map container: {e}")
-#     return map_data
-
 def construct_full_url(base_url, relative_url):
     """
     Constructs a full URL by joining a base URL with a relative URL.
@@ -189,7 +164,6 @@ def construct_full_url(base_url, relative_url):
     
     # Construct the full URL
     return urljoin(base_url, relative_url)
-
 def extract_images(media_section):
     """Extracts image data from the media section."""
     images = []
@@ -212,7 +186,6 @@ def extract_images(media_section):
             except Exception as e:
                 print(f"Error processing image container: {e}")
     return images
-
 def extract_map(media_section):
     """Extracts map data from the media section."""
     map_data = []
@@ -234,7 +207,6 @@ def extract_map(media_section):
             except Exception as e:
                 print(f"Error processing map container: {e}")
     return map_data
-
 def extract_media_type(soup):
     # Extract media data
     media_section = soup.find('div', {'data-hveid': 'CBkQAA'})
@@ -281,61 +253,233 @@ def extract_people_also_search_for(soup):
         "section_title": "People also search for",
         "related_terms": related_entities
     }
-def extract_knowledge_panel_data(panel, soup):
+def extract_hours(panel):
+    """
+    Extracts the "Hours" data from the provided HTML structure.
+    Returns a dictionary containing the extracted hours information.
+    """
+    hours_data = {
+        "section_title": "Hours",
+        "current_status": "Not Found",
+    }
+
+    # Locate the "Hours" section
+    hours_section = panel.find('div', {'data-attrid': 'kc:/location/location:hours'})
+    if not hours_section:
+        print("'Hours' section not found.")
+        return hours_data
+
+    print("Found 'Hours' section.")
+
+    try:
+        # Extract current status (e.g., "Closed ⋅ Opens 9 AM")
+        current_status_tag = hours_section.find('span', {'class': 'TLou0b'})
+        if current_status_tag:
+            current_status = current_status_tag.get_text(strip=True)
+            hours_data["current_status"] = current_status
+            print(f"Current status: {current_status}")
+
+    except Exception as e:
+        print(f"An error occurred while extracting hours data: {e}")
+
+    return hours_data
+def extract_social_media_profiles(panel):
+    """
+    Extracts social media profiles data from the provided HTML structure.
+    Returns a dictionary containing the extracted profiles.
+    """
+    social_media_profiles = {"social_media": []}
+
+    # Locate the "Social Media Presence" section
+    social_media_section = panel.find('div', {'data-attrid': 'kc:/common/topic:social media presence'})
+    if social_media_section:
+        print("Found 'Social Media Presence' section.")
+
+        # Extract individual social media profiles
+        profile_containers = social_media_section.find_all('div', {'class': 'PZPZlf dRrfkf kno-vrt-t'})
+        for container in profile_containers:
+            # Extract the link
+            link_tag = container.find('a')
+            if link_tag:
+                url = link_tag['href']
+                platform_name = link_tag.find('div', {'class': 'CtCigf'}).get_text(strip=True) if link_tag.find('div', {'class': 'CtCigf'}) else "Not Found"
+
+                # Append the extracted data to the social_media_profiles dictionary
+                social_media_profiles['social_media'].append({
+                    "platform": platform_name,
+                    "url": url
+                })
+
+        print(f"Extracted {len(social_media_profiles['social_media'])} social media profiles.")
+    else:
+        print("'Social Media Presence' section not found.")
+
+    return social_media_profiles
+def extract_contact_info(panel):
+    """
+    Extracts contact information (e.g., appointment links) from the provided HTML structure.
+    Returns a dictionary containing the extracted contact details.
+    """
+    contact_data = {"contact": []}
+
+    # Locate the "Contact" section
+    contact_section = panel.find('div', {'class': 'wDYxhc NFQFxe', 'data-attrid': 'kc:/local:appointment'})
+    if contact_section:
+        print("Found 'Contact' section.")
+
+        # Extract the appointment link
+        appointment_link_tag = contact_section.find('a')
+        if appointment_link_tag:
+            appointment_url = appointment_link_tag['href']
+            appointment_text = appointment_link_tag.get_text(strip=True)
+            
+            # Append the extracted data to the contact_data dictionary
+            contact_data['contact'].append({
+                "type": "Appointment",
+                "url": appointment_url,
+                "text": appointment_text
+            })
+
+        print(f"Extracted {len(contact_data['contact'])} contact details.")
+    else:
+        print("'Contact' section not found.")
+
+    return contact_data
+def extract_google_reviews_list(panel):
+    """
+    Extracts Google reviews data from the provided HTML structure.
+    Returns a dictionary containing the extracted reviews.
+    """
+    google_reviews_data = {"section_title": "Google reviews", "reviews": []}
+
+    # Locate the Google reviews section
+    google_reviews_section = panel.find('div', {'data-attrid': 'kc:/collection/knowledge_panels/local_reviewable:review_summary'})
+    if google_reviews_section:
+        print("Found 'Google reviews' section.")
+
+        # Extract individual reviews
+        review_containers = google_reviews_section.find_all('div', {'class': 'RfWLue'})
+        for container in review_containers:
+
+            # Extract user name
+            user_name_tag = container.find('a', {'class': 'a-no-hover-decoration'})
+            user_name = user_name_tag.get_text(strip=True) if user_name_tag else "No name available"
+
+            # Extract review text
+            review_text_tag = user_name_tag
+            review_text = review_text_tag.get_text(strip=True) if review_text_tag else "No review text available"
+
+            # Extract rating
+            rating_tag = container.find('span', {'class': 'z3HNkc'})
+            rating = rating_tag['aria-label'] if rating_tag and 'aria-label' in rating_tag.attrs else "No rating available"
+
+            # Append the extracted data to the google_reviews_data dictionary
+            google_reviews_data['reviews'].append({
+                "user_name": user_name,
+                "review_text": review_text,
+                "rating": rating
+            })
+
+        print(f"Extracted {len(google_reviews_data['reviews'])} reviews.")
+    else:
+        print("'Google reviews' section not found.")
+
+    return google_reviews_data
+def extract_knowledge_panel_data(panel, soup,query):
     data = {}
 
     # Extract first few items without delays
     data["title"] = extract_title(panel)
+       # Introduce a delay before extracting the last five items
+    print("Sleeping before extracting the last five items...")
+    time.sleep(random.randint(10, 20))
     data["rating"], data["number_of_google_reviews"] = extract_rating_and_reviews(panel)
+       # Introduce a delay before extracting the last five items
+    print("Sleeping before extracting the last five items...")
+    time.sleep(random.randint(10, 20))
     data["bio"] = extract_bio(panel)
+       # Introduce a delay before extracting the last five items
+    print("Sleeping before extracting the last five items...")
+    time.sleep(random.randint(10, 20))
     data["address"] = extract_address(panel)
+       # Introduce a delay before extracting the last five items
+    print("Sleeping before extracting the last five items...")
+    time.sleep(random.randint(10, 20))
     data["phone"] = extract_phone(panel)
 
     # Introduce a delay before extracting the last five items
     print("Sleeping before extracting the last five items...")
-    time.sleep(3)  # Sleep for 5 seconds (adjust as needed)
+    time.sleep(random.randint(10, 20))
 
     # Extract website
     data["website"] = extract_website(panel)
 
     # Sleep again before the next item
     print("Sleeping before extracting business status...")
-    time.sleep(3)  # Sleep for 3 seconds (adjust as needed)
+    time.sleep(random.randint(10, 20))
 
     # Extract business status
     data["business_status"] = extract_business_status(panel)
 
     # Sleep again before the next item
     print("Sleeping before extracting provider description...")
-    time.sleep(3)  # Sleep for 3 seconds (adjust as needed)
+    time.sleep(random.randint(10, 20))
 
     # Extract provider description
     data["provider_description"] = extract_provider_description(panel)
+    
+    # Sleep again before the next item
+    print("Sleeping before extracting hours...")
+    time.sleep(random.randint(10, 20))
+
+    # Extract hours
+    data["hours"] = extract_hours(panel)
+    
+    # Sleep again before the next item
+    print("Sleeping before extracting contact...")
+    time.sleep(random.randint(10, 20))
+
+    # Extract contact
+    data["contact"] = extract_contact_info(panel)
+
+    # Sleep again before the next item
+    print("Sleeping before extracting profiles...")
+    time.sleep(random.randint(10, 20))
+
+    # Extract profiles
+    data["profiles"] = extract_social_media_profiles(panel)
 
     # Sleep again before the next item
     print("Sleeping before extracting Google reviews...")
-    time.sleep(3)  # Sleep for 5 seconds (adjust as needed)
+    time.sleep(random.randint(10, 20))
 
     # Extract Google reviews
     data["google_reviews"] = extract_google_reviews(soup)
+    
+    # Sleep again before the next item
+    print("Sleeping before extracting Google reviews list...")
+    time.sleep(random.randint(10, 20))
 
+    # Extract Google reviews list
+    data["google_reviews_list"] = extract_google_reviews_list(soup)
+    
     # Sleep again before the next item
     print("Sleeping before extracting media type...")
-    time.sleep(random.randint(5, 15))
+    time.sleep(random.randint(10, 20))
 
     # Extract media type
     data["media_type"] = extract_media_type(soup)
 
     # Sleep again before the next item
     print("Sleeping before extracting 'People also search for'...")
-    time.sleep(random.randint(5, 9))
+    time.sleep(random.randint(10, 20))
 
     # Extract "People also search for"
     data["people_also_search_for"] = extract_people_also_search_for(soup)
 
     # Sleep again before the final item
     print("Sleeping before extracting 'Web reviews'...")
-    time.sleep(random.randint(5, 9))
+    time.sleep(random.randint(10, 20))
 
     # Extract "Web reviews"
     data["web_reviews"] = extract_web_reviews(panel)
@@ -344,67 +488,112 @@ def extract_knowledge_panel_data(panel, soup):
     data["query"] = query
 
     return data
-# Save the extracted data to a JSON file
-def save_to_json(data, query):
+
+def save_to_json(data, query, output_directory):
     """Saves the extracted data to a JSON file named after the query."""
+    os.makedirs(output_directory, exist_ok=True)
     filename = re.sub(r'[^\w\-_\. ]', '_', query) + '.json'
-    print(f"Saving data to file: {filename}")
+    filepath = os.path.join(output_directory, filename)
     try:
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=4)
-        print(f"Data successfully saved to {filename}")
+        print(f"Data successfully saved to {filepath}")
     except Exception as e:
-        print(f"Failed to save JSON file: {e}")
+        logging.error(f"Failed to save JSON file for query '{query}': {e}")
 
-# Retry mechanism
-max_retries = 7  # Maximum number of retries
-retry_delay = 15  # Delay between retries in seconds
+def process_query(query_text, npi, output_directory):
+    print(f"Processing query: {query_text}")
+    max_retries = 5
+    retry_delay = 15
 
-for attempt in range(max_retries):
-    print(f"Attempt {attempt + 1} of {max_retries}")
-    # Add a random delay before each request
-    time.sleep(random.uniform(7, 15))
+    for attempt in range(max_retries):
+        print(f"Attempt {attempt + 1} of {max_retries}")
+        time.sleep(random.uniform(7, 15))
+        try:
+            response = requests.get(
+                url=proxy_url,
+                params={"api_key": scrapeops_api_key, "url": f"https://www.google.com/search?q={query_text}"},
+                headers=headers,
+                verify=False  # Disable SSL verification
+            )
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            knowledge_panel = soup.find('div', {'id': 'rhs'})
+            if not knowledge_panel:
+                print("Knowledge Panel not found. Retrying...")
+                continue
+            print("Knowledge Panel found!")
+            break
+        except requests.exceptions.RequestException as e:
+            logging.error(f"Error fetching data for query '{query_text}': {e}")
+            if attempt < max_retries - 1:
+                print(f"Retrying in {retry_delay} seconds...")
+                time.sleep(retry_delay)
+            else:
+                print("Max retries reached. Skipping this query.")
+                return None
+    else:
+        logging.error(f"Failed to find Knowledge Panel for query '{query_text}' after multiple attempts.")
+        return None
 
-    try:
-        # Send the GET request through ScrapeOps Proxy
-        response = requests.get(
-            url=proxy_url,
-            params={"api_key": scrapeops_api_key, "url": url},  # The target URL to scrape
-            headers=headers,
-        )
-        response.raise_for_status()  # Raise an exception for HTTP errors
+    panel_data = extract_knowledge_panel_data(knowledge_panel, soup, query_text)
+    if npi:
+        panel_data["npi"] = npi
+    save_to_json(panel_data, query_text, output_directory)
+    return True
 
-        # Parse the HTML content with BeautifulSoup
-        soup = BeautifulSoup(response.content, 'html.parser')
+def fetch_all_data(csv_file, output_directory, max_threads=10):
+    completed_queries = set()
+    progress_file = os.path.join(output_directory, 'progress.txt')
 
-        # Save the raw HTML for debugging
-        with open("google_search.html", "w", encoding="utf-8") as file:
-            file.write(soup.prettify())
-        print("Raw HTML saved to 'google_search.html' for debugging.")
+    if os.path.exists(progress_file):
+        with open(progress_file, 'r') as f:
+            completed_queries = {line.strip() for line in f}
+        print(f"Loaded {len(completed_queries)} completed queries from {progress_file}.")
+    else:
+        print("No progress file found. Starting fresh.")
 
-        # Attempt to locate the Knowledge Panel
-        knowledge_panel = soup.find('div', {'id': 'rhs'})
-        if not knowledge_panel:
-            print("Knowledge Panel not found. Retrying...")
-            continue  # Retry the request
-        print("Knowledge Panel found!")
-        break  # Exit the retry loop if the Knowledge Panel is found
+    with open(csv_file, mode='r', newline='', encoding='utf-8') as file:
+        reader = csv.DictReader(file)
+        rows = list(reader)
 
-    except requests.exceptions.RequestException as e:
-        print(f"An error occurred while fetching the data: {e}")
-        if attempt < max_retries - 1:
-            print(f"Retrying in {retry_delay} seconds...")
-            time.sleep(retry_delay)
-        else:
-            print("Max retries reached. Exiting.")
-            exit()
-else:
-    # If the loop completes without finding the Knowledge Panel
-    print("Failed to find the Knowledge Panel after multiple attempts.")
-    exit()
+    remaining_rows = [row for row in rows if row['query_id'] not in completed_queries]
+    print(f"Found {len(remaining_rows)} unprocessed queries.")
 
-# Extract data from the Knowledge Panel
-panel_data = extract_knowledge_panel_data(knowledge_panel, soup)
+    with tqdm(total=len(remaining_rows), desc="Processing Queries") as progress_bar:
+        with ThreadPoolExecutor(max_workers=max_threads) as executor:
+            futures = []
+            for row in remaining_rows:
+                query_id = row['query_id']
+                query_text = row['query_text']
+                npi = row.get('npi', None)
+                future = executor.submit(process_query, query_text, npi, output_directory)
+                futures.append((future, query_id))
 
-# Save the extracted data
-save_to_json(panel_data, query)
+            for future, query_id in futures:
+                try:
+                    success = future.result()
+                    if success:
+                        with open(progress_file, 'a') as f:
+                            f.write(f"{query_id}\n")
+                        print(f"Query ID {query_id} successfully processed.")
+                    else:
+                        print(f"Query ID {query_id} failed. Skipping...")
+                except Exception as e:
+                    logging.error(f"Error processing query ID {query_id}: {e}")
+                finally:
+                    progress_bar.update(1)
+
+    print("Processing complete.")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Process queries from a CSV file and extract data from Google Knowledge Panels.")
+    parser.add_argument("--csv", required=True, help="Path to the CSV file containing queries.")
+    parser.add_argument("--output", default="output", help="Directory to save JSON output files.")
+    parser.add_argument("--threads", type=int, default=10, help="Number of threads to use for processing queries.")
+    args = parser.parse_args()
+
+    if not scrapeops_api_key:
+        raise ValueError("SCRAPEOPS_API_KEY environment variable is not set.")
+
+    fetch_all_data(args.csv, args.output, args.threads)
