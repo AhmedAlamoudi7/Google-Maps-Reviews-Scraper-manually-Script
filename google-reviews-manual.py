@@ -34,7 +34,7 @@ headers = {
 }
 
 # ScrapeOps Proxy
-scrapeops_api_key = "37e23611-991c-480b-b769-3a8281be9e26" 
+scrapeops_api_key = "a082a221-a83f-4289-a83e-b4a7273462a6" 
 proxy_url = "https://proxy.scrapeops.io/v1/"
 
 # Function to extract the title
