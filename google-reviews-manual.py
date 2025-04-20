@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from tqdm import tqdm
 import argparse
 import logging
+import html 
 
 # Configure logging
 logging.basicConfig(
@@ -47,16 +48,25 @@ def extract_bio(panel):
     return bio_tag.get_text(strip=True) if bio_tag  else ""
 # Function to extract the rating and number of reviews
 def extract_rating_and_reviews(panel):
-    subtitle_tag = panel.find('div', {'data-attrid': 'subtitle'})
+    # Initialize default values
     rating, number_of_reviews = "", ""
+    
+    # Extract rating from subtitle (if available)
+    subtitle_tag = panel.find('div', {'data-attrid': 'subtitle'})
     if subtitle_tag:
         subtitle_text = subtitle_tag.get_text(strip=True)
         rating_match = re.search(r"(\d+\.\d+)", subtitle_text)
-        reviews_match = re.search(r"(\d+)\s+Google\s+reviews", subtitle_text)
         if rating_match:
             rating = float(rating_match.group(1))
+    
+    # Extract number of reviews from the <a> tag
+    review_tag = panel.find('a', {'data-async-trigger': 'reviewDialog'})
+    if review_tag:
+        review_text = review_tag.get_text(strip=True)
+        reviews_match = re.search(r"(\d+)\s+Google\s+reviews", review_text)
         if reviews_match:
             number_of_reviews = int(reviews_match.group(1))
+    
     return rating, number_of_reviews
 # Function to extract the address
 def extract_address(panel):
@@ -291,38 +301,6 @@ def extract_hours(panel):
         print(f"An error occurred while extracting hours data: {e}")
 
     return hours_data
-def extract_hours_table(panel):
-    """
-    Extracts the business hours for each day of the week from the Knowledge Panel.
-    Returns a dictionary where keys are days and values are their respective statuses.
-    """
-    hours_data = {}
-    
-    # Locate the hours section in the panel
-    hours_section = panel.find('div', {'data-attrid': 'kc:/location/location:hours'})
-    if not hours_section:
-        print("Hours section not found.")
-        return hours_data  # Return an empty dictionary if the section is not found
-    
-    print("Found 'Hours' section.")
-    
-    # Find the table containing the days and their statuses
-    hours_table = hours_section.find('table', {'class': 'WgFkxc'})
-    if not hours_table:
-        print("Hours table not found.")
-        return hours_data  # Return an empty dictionary if the table is not found
-    
-    # Iterate through each row in the table
-    rows = hours_table.find_all('tr')
-    for row in rows:
-        # Extract the day and its status
-        cells = row.find_all('td')
-        if len(cells) >= 2:
-            day = cells[0].get_text(strip=True)
-            status = cells[1].get_text(strip=True)
-            hours_data[day] = status
-    
-    return hours_data
 def extract_social_media_profiles(panel):
     """
     Extracts social media profiles data from the provided HTML structure.
@@ -441,8 +419,6 @@ def extract_knowledge_panel_data(panel, soup,query):
     data["provider_description"] = extract_provider_description(panel)
     # Extract hours
     data["hours"] = extract_hours(panel)
-    # Extract hours
-    data["hours_table"] = extract_hours_table(panel)
     # Extract contact
     data["contact"] = extract_contact_info(panel)
     # Extract profiles
@@ -461,7 +437,6 @@ def extract_knowledge_panel_data(panel, soup,query):
     data["query"] = query
 
     return data
-
 def save_to_json(data, query, output_directory):
     """Saves the extracted data to a JSON file named after the query."""
     os.makedirs(output_directory, exist_ok=True)
@@ -473,7 +448,6 @@ def save_to_json(data, query, output_directory):
         print(f"Data successfully saved to {filepath}")
     except Exception as e:
         logging.error(f"Failed to save JSON file for query '{query}': {e}")
-
 def process_query(query_text, npi, output_directory):
     print(f"Processing query: {query_text}")
     max_retries = 5
@@ -528,8 +502,7 @@ def process_query(query_text, npi, output_directory):
     # Save the extracted data to JSON
     save_to_json(panel_data, query_text, output_directory)
 
-    return True
-    
+    return True  
 def fetch_all_data(csv_file, output_directory, max_threads=10):
     completed_queries = set()
     progress_file = os.path.join(output_directory, 'progress.txt')
