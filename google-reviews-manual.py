@@ -271,6 +271,44 @@ def extract_people_also_search_for(soup):
         "section_title": "People also search for",
         "related_terms": related_entities
     }
+def extract_opening_hours_from_html(html_text):
+    print(html_text)
+    pattern = re.compile(
+        r"window\.jsl\.dh\('([^']*)','(.+?)'\);",  # capture the second argument
+        re.DOTALL
+    )
+    
+    matches = pattern.findall(html_text)
+
+    for match_id, encoded_html in matches:
+        if "WgFkxc" in encoded_html:  # heuristic: match the table with hours
+            decoded_html = (
+                encoded_html.encode('utf-8')
+                .decode('unicode_escape')      # decode \u202f and \x3c etc.
+                .replace(r"\'", "'")           # unescape any JS-escaped single quotes
+            )
+            print(decoded_html)
+            return extract_opening_hours(decoded_html)
+
+    return {}
+def extract_opening_hours(html_text):
+    html_text = html.unescape(html_text)
+
+    # Match rows of the table: <td>Day</td><td>Time</td>
+    pattern = re.compile(
+        r'<tr[^>]*>\s*<td[^>]*>(.*?)</td>\s*<td[^>]*>(.*?)</td>',
+        re.DOTALL
+    )
+
+    matches = pattern.findall(html_text)
+    hours = {}
+    for day, time in matches:
+        # Clean up inner <div> for holidays like "(Easter)"
+        day_clean = re.sub(r'<div.*?</div>', '', day, flags=re.DOTALL)
+        hours[day_clean.strip()] = time.strip()
+
+    return hours
+
 def extract_hours(panel):
     """
     Extracts the "Hours" data from the provided HTML structure.
@@ -403,7 +441,7 @@ def extract_google_reviews_list(panel):
         print("'Google reviews' section not found.")
 
     return google_reviews_data
-def extract_knowledge_panel_data(panel, soup,query):
+def extract_knowledge_panel_data(panel, soup,query , html_text):
     data = {}
     # Extract first few items without delays
     data["title"] = extract_title(panel)
@@ -418,7 +456,7 @@ def extract_knowledge_panel_data(panel, soup,query):
     # Extract provider description
     data["provider_description"] = extract_provider_description(panel)
     # Extract hours
-    data["hours"] = extract_hours(panel)
+    data["hours"] = extract_opening_hours_from_html(html_text)
     # Extract contact
     data["contact"] = extract_contact_info(panel)
     # Extract profiles
@@ -495,7 +533,7 @@ def process_query(query_text, npi, output_directory):
         return None
 
     # Extract data from the Knowledge Panel
-    panel_data = extract_knowledge_panel_data(knowledge_panel, soup, query_text)
+    panel_data = extract_knowledge_panel_data(knowledge_panel, soup, query_text , response.text)
     if npi:
         panel_data["npi"] = npi
 
