@@ -35,16 +35,21 @@ headers = {
 }
 
 # ScrapeOps Proxy
-scrapeops_api_key = "a082a221-a83f-4289-a83e-b4a7273462a6" 
+scrapeops_api_key = "daeff0a6-4bba-4f67-8e03-1a46f9913ac2" 
 proxy_url = "https://proxy.scrapeops.io/v1/"
 
 # Function to extract the title
 def extract_title(panel):
     title_tag = panel.find('div', {'data-attrid': 'title'})
+    if not title_tag:
+        title_tag = panel.find('h2', {'data-attrid': 'title'})
+
     return title_tag.get_text(strip=True) if title_tag else ""
 # Function to extract the phone number
 def extract_bio(panel):
     bio_tag = panel.find('span', {'E5BaQ'})
+    if not bio_tag:
+        bio_tag = panel.find('div', {'data-attrid': 'kc:/local:one line summary'})
     return bio_tag.get_text(strip=True) if bio_tag  else ""
 # Function to extract the rating and number of reviews
 def extract_rating_and_reviews(panel):
@@ -58,7 +63,31 @@ def extract_rating_and_reviews(panel):
         rating_match = re.search(r"(\d+\.\d+)", subtitle_text)
         if rating_match:
             rating = float(rating_match.group(1))
-    
+    if not rating:
+        # Extract rating and number of reviews from the div containing the rating information
+        rating_div = panel.find('div', class_='ChPIuf YrbPuc')
+        if rating_div:
+            # Extract rating (e.g., 4.8)
+            rating_span = rating_div.find('span', class_='yi40Hd YrbPuc')
+            if rating_span:
+                rating_text = rating_span.get_text(strip=True)
+                try:
+                    rating = float(rating_text)
+                except ValueError:
+                    rating = ""  # In case the text is not a valid float
+    if not rating:
+        # Extract rating and number of reviews from the div containing the rating information
+        rating_div = panel.find('div', {'data-attrid': 'kc:/collection/knowledge_panels/local_reviewable:star_score'})
+        if rating_div:
+            # Extract rating (e.g., 4.8)
+            rating_span = rating_div.find('span', class_='Aq14fc')
+            if rating_span:
+                rating_text = rating_span.get_text(strip=True)
+                try:
+                    rating = float(rating_text)
+                except ValueError:
+                    rating = ""  # In case the text is not a valid float
+
     # Extract number of reviews from the <a> tag
     review_tag = panel.find('a', {'data-async-trigger': 'reviewDialog'})
     if review_tag:
@@ -116,8 +145,8 @@ def extract_google_reviews(soup):
         if total_reviews_tag:
             total_reviews = total_reviews_tag.get_text(strip=True)
             # Check if the text contains "Add a photo"
-            if "Add a photo" in total_reviews:
-                print("The text 'Add a photo' was found in the total reviews section. Skipping...")
+            if "Add a photo" or "View all Google reviews" in total_reviews:
+                print("The text 'Add a photo' or 'View all Google reviews' was found in the total reviews section. Skipping...")
                 total_reviews = ""  # Or handle it as needed
         else:
             total_reviews = ""
@@ -236,43 +265,90 @@ def extract_media_type(soup):
     else:
         print("'Media' section not found.")
         return None
-def extract_people_also_search_for(soup):
-    """Extracts data from the 'People also search for' section."""
-    # Locate the section
-    people_search_section = soup.find('div', {'data-attrid': 'kc:/local:sideways refinements'})
-    related_entities = []
 
-    if people_search_section:
-        print("Found 'People also search for' section.")
-        
-        # Extract individual entities
-        entities = people_search_section.find_all('div', class_='H93uF PZPZlf MRfBrb kno-vrt-t')
-        for entity in entities:
-            # Extract Name
-            name_div = entity.find('div', class_='fl ellip oBrLN CYJS5e ZwRhJd')
-            name = name_div.get_text(strip=True) if name_div else None
-            
-            # Extract Title/Profession
-            title_div = entity.find('div', class_='xlBGCb ellip wYIIv')
-            title = title_div.get_text(strip=True) if title_div else None
-            
-            # # Extract Image URL
-            # img_tag = entity.find('img')
-            # img_url = img_tag['src'] if img_tag and 'src' in img_tag.attrs else None
-            
-            # Append extracted details to the list
-            related_entities.append({
-                'name': name,
-                'title': title
-                # 'image_url': img_url
-            })
+def extract_people_also_search_for(soup):
+    """
+    Extracts data from the 'People also search for' section.
     
-    return {
+    Args:
+        soup (BeautifulSoup object): A BeautifulSoup object representing the HTML content to parse.
+    
+    Returns:
+        dict: A dictionary containing the section title and a list of related entities.
+              Each entity includes the name, title, and other extracted details.
+    """
+    # Initialize default return structure
+    result = {
         "section_title": "People also search for",
-        "related_terms": related_entities
+        "related_terms": []
     }
+
+    # List of possible section locators
+    section_locators = [
+        {'data-attrid': 'kc:/local:sideways refinements'},
+        {'data-hveid': 'CCEQAA'},  # Added based on previous examples
+    ]
+
+    # Try each section locator until a match is found
+    people_search_section = None
+    for locator in section_locators:
+        people_search_section = soup.find('div', attrs=locator)  # Use attrs to pass the locator as a dictionary
+        if people_search_section:
+            print(f"Found 'People also search for' section using locator: {locator}")
+            break
+
+    if not people_search_section:
+        print("No 'People also search for' section found.")
+        return result  # Return empty result if section is not found
+
+    # List of possible entity locators
+    entity_locators = [
+        {'class': 'vNFaUb uJyGcf'},  # Matches the provided HTML
+        {'class': 'IF221e EXH1Ce'},  # Fallback option
+        {'class': 'PZPZlf MRfBrb kno-vrt-t'}  # Fallback option
+    ]
+
+    # Try each entity locator and print all matches
+    entities = []
+    for locator in entity_locators:
+        found_entities = people_search_section.find_all('div', attrs=locator)  # Use attrs to pass the locator as a dictionary
+        if found_entities:
+            print(f"Entities found using locator: {locator}")
+            for idx, entity in enumerate(found_entities):
+                print(f"Entity {idx + 1}: {entity}")
+            entities.extend(found_entities)
+        else:
+            print(f"No entities found using locator: {locator}")
+
+    if not entities:
+        print("No entities found in the 'People also search for' section.")
+        return result  # Return empty result if no entities are found
+
+    # Iterate through each entity and extract details
+    for entity in entities:
+        # Navigate to the inner <span> element containing the name
+        name_span = (
+            entity.find('span', attrs={'class': 'Yt787'}) or
+            entity.find('div', attrs={'class': 'yVCOtc CvgGZ LJEGod aKoISd'})
+        )
+        name = name_span.get_text(strip=True) if name_span else None
+
+        # Extract Title (if included in the name)
+        title = None
+        if name and ',' in name:
+            name, title = name.split(',', 1)
+            name = name.strip()
+            title = title.strip()
+
+        # Append extracted details to the list
+        result["related_terms"].append({
+            'name': name,
+            'title': title
+        })
+
+    return result
+
 def extract_opening_hours_from_html(html_text):
-    print(html_text)
     pattern = re.compile(
         r"window\.jsl\.dh\('([^']*)','(.+?)'\);",  # capture the second argument
         re.DOTALL
